@@ -1,7 +1,9 @@
 import glob
+import hashlib
 import os
 import sqlite3
 import sys
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -18,6 +20,7 @@ MODEL = "gpt-5.2-2025-12-11"
 VECTOR_DB_DIR = "vector_db"
 PROPERTIES_DB_PATH = "properties.db"
 KB_ROOT = "knowledge-base"
+IMAGE_CACHE_DIR = Path(".image_cache")
 
 retriever = None
 agent = None
@@ -218,7 +221,7 @@ def property_search(
 @function_tool
 def search_docs(question: str) -> str:
     """
-    Retrieve KB content for UAE real-estate legal, visa, tax, financing, and ownership questions.
+    Retrieve Knowledge base content for UAE real-estate legal, visa, tax, financing, and ownership questions.
     Query should be in English.
     """
     global retriever
@@ -238,15 +241,42 @@ def search_docs(question: str) -> str:
 
 def build_agent() -> Agent:
     instructions = """
-You are a knowledgeable and concise UAE off-plan real-estate broker assistant for foreign investors.
+You are a friendly and knowledgable senior off-plan real-estate broker who specialises in helping foreign investors invest in the UAE.
+
+You help users identify high-quality real estate opportunities based on their budget, goals, and preferences.
+
+You provide clear, concise, and investor-focused recommendations.
+
+Your goal is to:
+- Understand the user's requirements
+- Retrieve relevant property options
+- Recommend the best matches
+- Clearly explain WHY each option is suitable
+- Keep responses concise and structured
+
+
+When recommending properties, ALWAYS follow this structure:
+
+[Property Name / Area]
+- Price:
+- Bedrooms:
+- Handover:
+- Key Investment Reason:
+- Why it fits YOU:
+
+After listing properties, include:
+
+Summary:
+(1–2 lines explaining overall recommendation or strategy)
 
 Tool usage policy:
-- Use `property_search` when user asks for recommendations, budget/rooms/location matching, or specific properties.
-- Use `search_docs` for legal/regulatory/tax/visa/financing/ownership facts.
+- Use `property_search` tool to search for avaiable properties that can be recommended to the user. 
+- Use `search_docs` for legal/regulatory/tax/visa/financing/ownership facts. Only include information that directly relates to the user's question.
 - For factual/legal answers, rely on `search_docs` and do not guess.
-- If no docs are found, ask a clarifying follow-up question.
+- If more information is required ask a clarifying follow-up questions.
 - If property search has no matches, ask the user to adjust budget/rooms/location naturally (do not mention tool failure).
 - Recommend at most 3 properties in any single response.
+
 """.strip()
 
     return Agent(
@@ -288,13 +318,48 @@ def _format_property_text(prop: Dict[str, Any]) -> str:
     )
 
 
+def _build_cached_image_path(listing_id: Any, image_url: str) -> Path:
+    safe_id = str(listing_id or "listing").replace("/", "_").replace("\\", "_")
+    digest = hashlib.sha256(image_url.encode("utf-8")).hexdigest()[:12]
+    return IMAGE_CACHE_DIR / f"{safe_id}_{digest}.jpg"
+
+
+def _cache_image_locally(image_url: str, listing_id: Any) -> Optional[str]:
+    if not image_url:
+        return None
+
+    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    destination = _build_cached_image_path(listing_id, image_url)
+    if destination.exists():
+        return str(destination)
+
+    try:
+        request = urllib.request.Request(
+            image_url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+                )
+            },
+        )
+        with urllib.request.urlopen(request, timeout=25) as response:
+            data = response.read()
+            if not data:
+                return None
+        destination.write_bytes(data)
+        return str(destination)
+    except Exception:
+        return None
+
+
 def _build_property_outputs(properties: List[Dict[str, Any]]) -> tuple[List[Optional[str]], List[str]]:
     images: List[Optional[str]] = [None, None, None]
     texts: List[str] = ["", "", ""]
 
     for idx, prop in enumerate(properties[:3]):
         image_url = prop.get("image_url")
-        images[idx] = str(image_url) if image_url else None
+        images[idx] = _cache_image_locally(str(image_url), prop.get("listing_id")) if image_url else None
         texts[idx] = _format_property_text(prop)
 
     return images, texts
@@ -381,9 +446,14 @@ def build_ui() -> gr.Blocks:
         prop3_img = gr.Image(label="Property 3", render=False)
         prop3_desc = gr.Textbox(label="Description 3", lines=10, interactive=False, render=False)
 
+        chat_input = gr.Textbox(
+            placeholder="Describe your ideal UAE property (e.g., budget, area, bedrooms, investment goal)"
+        )
+
         gr.ChatInterface(
             fn=agent_chat,
-            title="Broker Agent",
+            title="Apex Property Advisor",
+            textbox=chat_input,
             additional_outputs=[prop1_img, prop1_desc, prop2_img, prop2_desc, prop3_img, prop3_desc],
         )
 
