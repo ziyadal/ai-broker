@@ -30,7 +30,7 @@ flowchart LR
 Requires Python 3.12 and an OpenAI API key.
 
 ```bash
-cp .env.example .env  # create this file if needed and set OPENAI_API_KEY
+# Set OPENAI_API_KEY in your environment or a local .env file
 uv sync
 uv run application.py
 ```
