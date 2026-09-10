@@ -12,3 +12,10 @@ wheels/
 # Local secrets and runtime UI data
 .env
 .gradio/
+
+# Generated local data and caches
+.image_cache/
+vector_db/
+kb_db/
+*.db
+*.sqlite3
