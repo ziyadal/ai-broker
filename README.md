@@ -27,10 +27,9 @@ flowchart LR
 
 ## Run locally
 
-Requires Python 3.12 and an OpenAI API key.
+Requires Python 3.12 and an OpenAI API key. Copy `.env.example` to `.env`, then replace the placeholder key.
 
 ```bash
-# Set OPENAI_API_KEY in your environment or a local .env file
 uv sync
 uv run application.py
 ```
